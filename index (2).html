@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>หลับดี — ระบบคัดกรองและบันทึกการนอนหลับ</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f1ec;--card:#fff;--ink:#1d2433;--mut:#4d5566;--pri:#1f3a6e;--pri2:#e3eaf7;--ok:#1d7a4a;--warn:#b25e00;--bad:#b3261e;--line:#c9ccd3;--fs:20px}
+@media(prefers-color-scheme:dark){:root{--bg:#141821;--card:#1e2430;--ink:#f2f4f8;--mut:#b8c0cf;--pri:#8fb2ff;--pri2:#283450;--ok:#6fd49b;--warn:#ffb454;--bad:#ff8a80;--line:#46506a}}
+*{box-sizing:border-box}html{font-size:var(--fs)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Sarabun,system-ui,sans-serif;line-height:1.55;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{background:var(--pri);color:#fff;padding:.7rem 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+@media(prefers-color-scheme:dark){header{color:#10203f}}
+header h1{font-size:1.3rem;margin:0;flex:1}
+main{max-width:860px;margin:0 auto;padding:1rem}
+.card{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:1rem;margin-bottom:1rem}
+h2{font-size:1.25rem;margin:.2rem 0 .7rem}h3{font-size:1.05rem;margin:1rem 0 .4rem}
+label{display:block;font-weight:600;margin:.7rem 0 .2rem}
+input,select,textarea{width:100%;font:inherit;padding:.65rem .7rem;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);min-height:3rem}
+input:focus,select:focus,button:focus-visible{outline:3px solid #f0a500;outline-offset:2px}
+button{font:inherit;font-weight:700;min-height:3rem;padding:.6rem 1.1rem;border-radius:10px;border:2px solid var(--pri);background:var(--pri);color:#fff;cursor:pointer}
+@media(prefers-color-scheme:dark){button{color:#10203f}}
+button.sec{background:transparent;color:var(--pri)}button.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+button.sm{min-height:2.6rem;padding:.3rem .8rem}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}@media(max-width:560px){.row{grid-template-columns:1fr}}
+.tabs{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.4rem;margin-bottom:.8rem}
+.tabs button{background:var(--card);color:var(--pri);white-space:nowrap}.tabs button.on{background:var(--pri);color:#fff}
+@media(prefers-color-scheme:dark){.tabs button.on{color:#10203f}}
+.opt{display:flex;gap:.4rem;flex-wrap:wrap}.opt button{flex:1;min-width:3.2rem;background:var(--card);color:var(--ink);border-color:var(--line)}
+.opt button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+@media(prefers-color-scheme:dark){.opt button.on{color:#10203f}}
+.q{padding:.6rem 0;border-bottom:1px solid var(--line)}.q b{display:block;margin-bottom:.4rem}
+.chk{display:flex;gap:.6rem;align-items:center;font-weight:400;padding:.4rem 0}.chk input{width:1.6rem;height:1.6rem;min-height:0}
+.badge{display:inline-block;padding:.15rem .7rem;border-radius:99px;font-weight:700;color:#fff}
+.ok{background:var(--ok)}.warn{background:var(--warn)}.bad2{background:var(--bad)}
+.item{display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;padding:.7rem 0;border-bottom:1px solid var(--line)}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;text-align:center}.stat div{background:var(--pri2);border-radius:12px;padding:.6rem}.stat b{display:block;font-size:1.5rem}
+.mut{color:var(--mut)}.note{border-left:6px solid var(--warn);padding:.5rem .8rem;background:var(--pri2);border-radius:6px;margin:.6rem 0}
+.rec li{margin:.3rem 0}svg{width:100%;height:auto;display:block}svg text{fill:var(--ink);font-family:Sarabun,sans-serif}
+#toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:.7rem 1.2rem;border-radius:10px;display:none;z-index:9}
+.hide{display:none}
+</style></head><body>
+<header><h1>🌙 หลับดี</h1>
+<button class="sec sm" style="background:#fff" onclick="zoom()" aria-label="ปรับขนาดตัวอักษร">ก+ ขนาดตัวอักษร</button>
+<button class="sec sm hide" id="out" style="background:#fff" onclick="logout()">ออกจากระบบ</button></header>
+<main id="app"></main><div id="toast" role="status"></div>
+<script>
+// ===== ตั้งค่า: วาง URL ของ Web App จาก Google Apps Script =====
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwhSAq9Y9EdPE2q7kZeD34eHuzyPQ3anlm51H6kUGtNKzu81E0nNIbgQuxEm_ZR_xkG/exec";
+// ================================================================
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let S = {auth:null, user:null, patients:[], logs:[], screens:[], tab:'log', sel:null, edit:null, isi:Array(7).fill(null), causes:[]};
+let sizes=[20,24,28], si=0;
+function zoom(){ si=(si+1)%3; document.documentElement.style.setProperty('--fs', sizes[si]+'px'); }
+function toast(t){ const e=$('#toast'); e.textContent=t; e.style.display='block'; setTimeout(()=>e.style.display='none',2600); }
+async function api(action, data){
+  if(!GAS_URL){ toast('ยังไม่ได้ตั้งค่า GAS_URL'); return {ok:false}; }
+  try{
+    const r = await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action,auth:S.auth,data})});
+    const j = await r.json(); if(!j.ok) toast(j.error||'เกิดข้อผิดพลาด'); return j;
+  }catch(e){ toast('เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง'); return {ok:false}; }
+}
+const isAdmin = () => S.auth && S.auth.role==='admin';
+async function load(){ const j=await api('list',{}); if(j.ok){ S.patients=j.patients; S.logs=j.logs; S.screens=j.screens; } render(); }
+
+// ===== คำนวณ =====
+const mins = t => { const [h,m]=(t||'0:0').split(':').map(Number); return h*60+m; };
+function calc(l){ let tib=(mins(l.wake)-mins(l.bed)+1440)%1440 || 0; const tst=Math.max(0,tib-(+l.latency||0)-(+l.waso||0)); return {tib,tst,eff:tib?Math.round(tst/tib*100):0}; }
+const myLogs = () => S.logs.filter(l=>l.patientId===S.sel).sort((a,b)=>a.date<b.date?-1:1);
+const myScreens = () => S.screens.filter(l=>l.patientId===S.sel).sort((a,b)=>a.date<b.date?1:-1);
+const pat = () => S.patients.find(p=>p.id===S.sel);
+const isiLevel = n => n<=7?['ไม่มีปัญหานอนไม่หลับที่สำคัญ','ok']:n<=14?['นอนไม่หลับระดับเล็กน้อย','warn']:n<=21?['นอนไม่หลับระดับปานกลาง','warn']:['นอนไม่หลับระดับรุนแรง','bad2'];
+
+// ===== หน้า Login =====
+function loginView(){
+  return `<div class="card"><h2>เข้าสู่ระบบผู้ป่วย</h2>
+  <label>ชื่อ-สกุล</label><input id="ln" autocomplete="name">
+  <label>รหัส PIN 4 หลัก</label><input id="lp" type="password" inputmode="numeric" maxlength="4">
+  <p><button onclick="doLogin()">เข้าสู่ระบบ</button></p></div>
+  <div class="card"><h2>ลงทะเบียนครั้งแรก</h2>
+  <label>ชื่อ-สกุล</label><input id="rn"><div class="row"><div><label>อายุ (ปี)</label><input id="ra" type="number" inputmode="numeric"></div>
+  <div><label>ตั้งรหัส PIN 4 หลัก</label><input id="rp" type="password" inputmode="numeric" maxlength="4"></div></div>
+  <p><button class="sec" onclick="doReg()">ลงทะเบียน</button></p></div>
+  <div class="card"><h2>สำหรับบุคลากรทางการแพทย์</h2><label>รหัสแอดมิน</label><input id="ap" type="password">
+  <p><button class="sec" onclick="doAdmin()">เข้าสู่ระบบแอดมิน</button></p></div>`;
+}
+async function doLogin(){ const n=$('#ln').value.trim(), pin=$('#lp').value; S.auth={role:'patient',name:n,pin};
+  const j=await api('login',{}); if(j.ok){ S.auth={role:'patient',id:j.user.id,pin}; enter(j.user); } else S.auth=null; }
+async function enter(u){ S.user=u; S.sel=u.id; S.tab='log'; $('#out').classList.remove('hide'); await load(); }
+async function doReg(){ const d={name:$('#rn').value.trim(),age:$('#ra').value,pin:$('#rp').value}; const j=await api('register',d);
+  if(j.ok){ S.auth={role:'patient',id:j.user.id,pin:d.pin}; enter(j.user); } }
+async function doAdmin(){ S.auth={role:'admin',password:$('#ap').value}; const j=await api('login',{});
+  if(j.ok){ S.user={name:'บุคลากรทางการแพทย์'}; S.sel=null; S.tab='pts'; $('#out').classList.remove('hide'); load(); } else S.auth=null; }
+function logout(){ S={...S,auth:null,user:null,sel:null,patients:[],logs:[],screens:[]}; $('#out').classList.add('hide'); render(); }
+
+// ===== โครงหลัก =====
+function render(){
+  const a=$('#app'); if(!S.auth){ a.innerHTML=loginView(); return; }
+  let tabs = [['log','✏️ บันทึกการนอน'],['hist','📋 ประวัติ'],['chart','📊 กราฟ'],['isi','📝 ประเมิน ISI']];
+  if(isAdmin()) tabs.unshift(['pts','👥 ผู้ป่วย']);
+  let h = `<div class="tabs">${tabs.map(t=>`<button class="${S.tab===t[0]?'on':''}" onclick="S.tab='${t[0]}';S.edit=null;render()">${t[1]}</button>`).join('')}</div>`;
+  if(isAdmin() && S.tab!=='pts' && !S.sel){ S.tab='pts'; }
+  if(isAdmin() && S.sel && S.tab!=='pts') h += `<div class="note">ผู้ป่วย: <b>${esc(pat()?.name)}</b> ${pat()?.age?`อายุ ${esc(pat().age)} ปี`:''}</div>`;
+  const v={pts:ptsView,log:logView,hist:histView,chart:chartView,isi:isiView}[S.tab]; a.innerHTML = h + v();
+  if(S.tab==='chart') drawCharts();
+}
+
+// ===== แอดมิน: รายชื่อผู้ป่วย =====
+function ptsView(){
+  const rows = S.patients.map(p=>{ const ls=S.logs.filter(l=>l.patientId===p.id).sort((a,b)=>a.date<b.date?1:-1); const sc=S.screens.filter(x=>x.patientId===p.id).sort((a,b)=>a.date<b.date?1:-1)[0];
+    return `<div class="item"><div><b>${esc(p.name)}</b> <span class="mut">${p.age?p.age+' ปี':''}</span><br><span class="mut">บันทึก ${ls.length} คืน${ls[0]?' · ล่าสุด '+esc(ls[0].date):''}</span>
+    ${sc?` · ISI <span class="badge ${isiLevel(+sc.isi)[1]}">${sc.isi}</span>`:''}</div><button class="sm" onclick="S.sel='${p.id}';S.tab='chart';render()">ดูข้อมูล</button></div>`; }).join('');
+  return `<div class="card"><h2>รายชื่อผู้ป่วย (${S.patients.length})</h2>${rows||'<p class="mut">ยังไม่มีผู้ป่วยลงทะเบียน</p>'}</div>
+  <div class="card"><h3>เพิ่มผู้ป่วยแทน</h3><div class="row"><div><label>ชื่อ-สกุล</label><input id="rn"></div><div><label>อายุ</label><input id="ra" type="number"></div></div>
+  <label>PIN 4 หลัก (แจ้งผู้ป่วย)</label><input id="rp" maxlength="4" inputmode="numeric"><p><button class="sec" onclick="addPt()">เพิ่มผู้ป่วย</button></p></div>`;
+}
+async function addPt(){ const au=S.auth; const j=await api('register',{name:$('#rn').value.trim(),age:$('#ra').value,pin:$('#rp').value}); S.auth=au; if(j.ok){ toast('เพิ่มแล้ว'); load(); } }
+
+// ===== ฟอร์มบันทึกการนอน =====
+function logView(){
+  const e=S.edit||{date:new Date().toISOString().slice(0,10),bed:'22:00',wake:'06:00',latency:15,awakenings:0,waso:0,quality:'ปานกลาง',caffeine:0,nap:0,exercise:'ไม่ได้',med:''};
+  const opt=(k,vals)=>`<div class="opt">${vals.map(v=>`<button type="button" class="${e[k]==v?'on':''}" onclick="S.edit=getLog();S.edit.${k}='${v}';render()">${v}</button>`).join('')}</div>`;
+  return `<div class="card"><h2>${S.edit?.id?'แก้ไขบันทึก':'บันทึกการนอนของคืนที่ผ่านมา'}</h2>
+  <label>วันที่ตื่นนอน</label><input id="f_date" type="date" value="${e.date}">
+  <div class="row"><div><label>เข้านอนเวลา</label><input id="f_bed" type="time" value="${e.bed}"></div><div><label>ตื่นนอนเวลา</label><input id="f_wake" type="time" value="${e.wake}"></div></div>
+  <div class="row"><div><label>ใช้เวลากี่นาทีกว่าจะหลับ</label><input id="f_latency" type="number" inputmode="numeric" min="0" value="${e.latency}"></div>
+  <div><label>ตื่นกลางดึกกี่ครั้ง</label><input id="f_awakenings" type="number" inputmode="numeric" min="0" value="${e.awakenings}"></div></div>
+  <label>เวลาที่ตื่นกลางดึกรวมกี่นาที</label><input id="f_waso" type="number" inputmode="numeric" min="0" value="${e.waso}">
+  <label>คุณภาพการนอน</label>${opt('quality',['ดีมาก','ปานกลาง','แย่'])}
+  <div class="row"><div><label>ชา/กาแฟ/น้ำอัดลม (แก้ว)</label><input id="f_caffeine" type="number" inputmode="numeric" min="0" value="${e.caffeine}"></div>
+  <div><label>งีบกลางวัน (นาที)</label><input id="f_nap" type="number" inputmode="numeric" min="0" value="${e.nap}"></div></div>
+  <label>ออกกำลังกายวันนี้</label>${opt('exercise',['ได้','ไม่ได้'])}
+  <label>ยานอนหลับที่ทานคืนนี้ (ชื่อยา/มิลลิกรัม)</label><input id="f_med" value="${esc(e.med)}" placeholder="ถ้าไม่ได้ทานให้เว้นว่าง">
+  <p><button onclick="saveLog()">💾 บันทึกข้อมูล</button> ${S.edit?'<button class="sec" onclick="S.edit=null;render()">ยกเลิก</button>':''}</p></div>`;
+}
+function getLog(){ const g=k=>($('#f_'+k)||{}).value; const o={...(S.edit||{})}; ['date','bed','wake','latency','awakenings','waso','caffeine','nap','med'].forEach(k=>{ if($('#f_'+k)) o[k]=g(k); }); o.quality=o.quality||'ปานกลาง'; o.exercise=o.exercise||'ไม่ได้'; return o; }
+async function saveLog(){
+  const o=getLog(); if(!S.sel){ toast('เลือกผู้ป่วยก่อน'); return; } o.patientId=S.sel;
+  const j=await api('save',{sheet:'Logs',id:o.id,rec:o}); if(j.ok){ toast('บันทึกแล้ว'); S.edit=null; S.tab='hist'; await load(); }
+}
+
+// ===== ประวัติ =====
+function histView(){
+  const ls=myLogs().reverse();
+  return `<div class="card"><h2>ประวัติการนอน (${ls.length} คืน)</h2>${ls.map(l=>{ const c=calc(l); const t=c.eff>=85?'ok':c.eff>=75?'warn':'bad2';
+    return `<div class="item"><div><b>${esc(l.date)}</b> <span class="badge ${t}">หลับจริง ${(c.tst/60).toFixed(1)} ชม. (${c.eff}%)</span><br>
+    <span class="mut">นอน ${esc(l.bed)} – ตื่น ${esc(l.wake)} · หลับยาก ${esc(l.latency)} นาที · ตื่นกลางดึก ${esc(l.awakenings)} ครั้ง · ${esc(l.quality)}${l.med?' · ยา: '+esc(l.med):''}</span></div>
+    <div><button class="sm sec" onclick="editLog('${l.id}')">แก้ไข</button> <button class="sm bad" onclick="delLog('${l.id}')">ลบ</button></div></div>`; }).join('')||'<p class="mut">ยังไม่มีบันทึก</p>'}</div>`;
+}
+function editLog(id){ S.edit={...S.logs.find(l=>l.id===id)}; S.tab='log'; render(); scrollTo(0,0); }
+async function delLog(id){ if(!confirm('ยืนยันลบบันทึกนี้?')) return; const j=await api('delete',{sheet:'Logs',id}); if(j.ok){ toast('ลบแล้ว'); load(); } }
+
+// ===== กราฟ =====
+function chartView(){
+  const ls=myLogs().slice(-14); if(!ls.length) return '<div class="card"><p class="mut">ยังไม่มีข้อมูลสำหรับสร้างกราฟ</p></div>';
+  const cs=ls.map(calc), avg=a=>a.length?(a.reduce((x,y)=>x+y,0)/a.length):0;
+  return `<div class="card"><h2>สรุปภาพรวม (${ls.length} คืนล่าสุด)</h2><div class="stat">
+  <div><b>${(avg(cs.map(c=>c.tst))/60).toFixed(1)}</b>ชม. หลับเฉลี่ย</div><div><b>${Math.round(avg(cs.map(c=>c.eff)))}%</b>ประสิทธิภาพ</div><div><b>${Math.round(avg(ls.map(l=>+l.latency||0)))}</b>นาทีกว่าจะหลับ</div></div>
+  <p class="mut">ประสิทธิภาพการนอนที่ดีควรตั้งแต่ 85% ขึ้นไป</p></div>
+  <div class="card"><h3>ชั่วโมงที่หลับจริงต่อคืน</h3><div id="c1"></div></div>
+  <div class="card"><h3>ประสิทธิภาพการนอน (%)</h3><div id="c2"></div></div>
+  <div class="card"><h3>นาทีที่ใช้กว่าจะหลับ</h3><div id="c3"></div></div>`;
+}
+function bars(vals,labels,color,ref,unit){
+  const W=640,H=230,m=34,max=Math.max(...vals,ref||0,1)*1.15,bw=(W-m*2)/vals.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  if(ref!=null){ const y=H-30-(ref/max)*(H-60); s+=`<line x1="${m}" x2="${W-m}" y1="${y}" y2="${y}" stroke="var(--ok)" stroke-width="3" stroke-dasharray="8 6"/><text x="${W-m}" y="${y-6}" text-anchor="end" font-size="15">เป้าหมาย ${ref}${unit}</text>`; }
+  vals.forEach((v,i)=>{ const h=(v/max)*(H-60),x=m+i*bw+bw*.15; s+=`<rect x="${x}" y="${H-30-h}" width="${bw*.7}" height="${h}" rx="4" fill="${color}"/><text x="${x+bw*.35}" y="${H-34-h}" text-anchor="middle" font-size="14" font-weight="700">${Math.round(v*10)/10}</text><text x="${x+bw*.35}" y="${H-10}" text-anchor="middle" font-size="13">${labels[i]}</text>`; });
+  return s+'</svg>';
+}
+function drawCharts(){ const ls=myLogs().slice(-14); if(!ls.length) return; const cs=ls.map(calc), lb=ls.map(l=>l.date.slice(8)+'/'+l.date.slice(5,7));
+  $('#c1').innerHTML=bars(cs.map(c=>c.tst/60),lb,'#3f6fd1',7,' ชม.'); $('#c2').innerHTML=bars(cs.map(c=>c.eff),lb,'#1d9a62',85,'%'); $('#c3').innerHTML=bars(ls.map(l=>+l.latency||0),lb,'#d98a1c',30,' นาที'); }
+
+// ===== ISI + คำแนะนำ =====
+const ISIQ=['ความยากในการเริ่มหลับ','ความยากในการนอนต่อเนื่อง (ตื่นกลางดึก)','ตื่นเช้าเกินไปและหลับต่อไม่ได้','ความไม่พอใจต่อการนอนในปัจจุบัน (0=พอใจ, 4=ไม่พอใจมาก)','การนอนกระทบการทำงาน/ชีวิตกลางวัน','คนรอบข้างสังเกตเห็นปัญหาการนอนของคุณ','ความกังวล/ทุกข์ใจจากปัญหาการนอน'];
+const CAUSES=['ปวดเรื้อรัง / ปัสสาวะบ่อยกลางคืน / ขากระตุก (RLS)','นอนกรนดัง / หยุดหายใจขณะหลับ (OSA)','วิตกกังวล / ซึมเศร้า / สมองเสื่อม','ดื่มกาแฟ ชา แอลกอฮอล์ หรือใช้ยาที่กระตุ้น (สเตียรอยด์ ยาขยายหลอดลม pseudoephedrine)'];
+function isiView(){
+  const done=S.isi.every(x=>x!==null), tot=S.isi.reduce((a,b)=>a+(b||0),0), p=pat()||S.user||{};
+  let h=`<div class="card"><h2>แบบประเมินความรุนแรงโรคนอนไม่หลับ (ISI)</h2><p class="mut">ตอบตามอาการในช่วง 2 สัปดาห์ที่ผ่านมา (0 = ไม่มีเลย … 4 = รุนแรงที่สุด)</p>
+  ${ISIQ.map((q,i)=>`<div class="q"><b>${i+1}. ${q}</b><div class="opt">${[0,1,2,3,4].map(v=>`<button class="${S.isi[i]===v?'on':''}" onclick="S.isi[${i}]=${v};render()">${v}</button>`).join('')}</div></div>`).join('')}
+  <h3>ปัจจัยร่วมที่พบ (เลือกได้หลายข้อ)</h3>${CAUSES.map((c,i)=>`<label class="chk"><input type="checkbox" ${S.causes.includes(i)?'checked':''} onchange="togCause(${i})">${c}</label>`).join('')}`;
+  if(done){ const [t,c]=isiLevel(tot); h+=`<h3>ผลการประเมิน</h3><p style="font-size:1.3rem"><b>${tot}/28</b> <span class="badge ${c}">${t}</span></p>${recHtml(tot,+p.age)}<p><button onclick="saveIsi(${tot})">💾 บันทึกผลประเมิน</button></p>`; }
+  h+='</div>';
+  const hist=myScreens(); if(hist.length) h+=`<div class="card"><h3>ประวัติการประเมิน</h3>${hist.map(x=>`<div class="item"><span>${esc(x.date)} — ISI <span class="badge ${isiLevel(+x.isi)[1]}">${esc(x.isi)}</span></span><button class="sm bad" onclick="delScr('${x.id}')">ลบ</button></div>`).join('')}</div>`;
+  return h;
+}
+function togCause(i){ const k=S.causes.indexOf(i); k<0?S.causes.push(i):S.causes.splice(k,1); render(); }
+function recHtml(n,age){
+  const old=age>=65, c=S.causes; let l=[];
+  l.push('<b>อันดับแรกสำหรับทุกระดับ:</b> สุขอนามัยการนอนและ CBT-I — เข้านอน/ตื่นเวลาเดิม, ถ้านอนไม่หลับเกิน 20 นาทีให้ลุกจากเตียง, งดงีบเกิน 30 นาที, งดคาเฟอีนช่วงบ่าย');
+  if(c.includes(1)) l.push('⚠️ สงสัยภาวะหยุดหายใจขณะหลับ (OSA) — พิจารณาส่งตรวจการนอนหลับก่อนใช้ยานอนหลับ');
+  if(c.includes(0)||c.includes(2)||c.includes(3)) l.push('แก้สาเหตุร่วมก่อน: ควบคุมอาการปวด/ปัสสาวะกลางคืน, ประเมินอารมณ์และความจำ, ทบทวนยาและเครื่องดื่มที่กระตุ้น');
+  if(n<=7) l=['ยังไม่พบปัญหานอนไม่หลับที่สำคัญ — แนะนำรักษาสุขอนามัยการนอนและบันทึกต่อเนื่อง'];
+  else if(n>=15){
+    l.push(`<b>ยาช่วยนอน (พิจารณาเมื่อไม่ตอบสนองต่อวิธีไม่ใช้ยา ใช้ขนาดต่ำสุด ระยะสั้น):</b>`);
+    l.push((old?'❌ ผู้สูงอายุ (≥65 ปี): หลีกเลี่ยง Benzodiazepines และ Z-drugs (เช่น zolpidem) ตาม Beers Criteria เสี่ยงหกล้ม สับสน และความจำเสื่อม':'หลีกเลี่ยงการใช้ Benzodiazepines/Z-drugs ระยะยาว เสี่ยงติดยาและง่วงซึม')+'<br>✅ ทางเลือก: Melatonin · Trazodone ขนาดต่ำ (กรณีซึมเศร้า/ปวดร่วม) · Mirtazapine ขนาดต่ำ (กรณีซึมเศร้า/เบื่ออาหาร)');
+    l.push('โรคไต/ตับบกพร่อง: ปรับลดขนาดยาและติดตามใกล้ชิด');
+  } else l.push('ระดับเล็กน้อย–ปานกลางตอนต้น: ติดตามบันทึกการนอน 2 สัปดาห์ แล้วประเมินซ้ำ');
+  return `<ul class="rec">${l.map(x=>`<li>${x}</li>`).join('')}</ul><div class="note">เป็นข้อมูลสนับสนุนการตัดสินใจ ต้องให้แพทย์/เภสัชกรยืนยันก่อนใช้ยาทุกครั้ง</div>`;
+}
+async function saveIsi(n){ if(!S.sel){ toast('เลือกผู้ป่วยก่อน'); return; }
+  const j=await api('save',{sheet:'Screens',rec:{patientId:S.sel,date:new Date().toISOString().slice(0,10),isi:n,causes:S.causes.join(','),note:''}});
+  if(j.ok){ toast('บันทึกผลแล้ว'); S.isi=Array(7).fill(null); S.causes=[]; load(); } }
+async function delScr(id){ if(!confirm('ยืนยันลบ?')) return; const j=await api('delete',{sheet:'Screens',id}); if(j.ok) load(); }
+render();
+</script></body></html>
